@@ -72,12 +72,22 @@ class SheetEditor {
       return cells[c].userEnteredValue?.formulaValue != null;
     }
 
+    // The Sheets API trims each row to its last non-empty cell (and omits empty
+    // rows entirely), so a sparse tab comes back ragged. Pad every row out to a
+    // common width so all columns and rows of the used range are present and
+    // editable — not just the cells that happen to hold a value.
+    var width = 0;
+    for (final raw in values) {
+      if (raw.length > width) width = raw.length;
+    }
+
     final rows = <List<GridCell>>[];
     for (var r = 0; r < values.length; r++) {
       final raw = values[r];
       final cells = <GridCell>[];
-      for (var c = 0; c < raw.length; c++) {
-        cells.add(GridCell(_stringify(raw[c]), isFormula: isFormula(r, c)));
+      for (var c = 0; c < width; c++) {
+        final value = c < raw.length ? _stringify(raw[c]) : '';
+        cells.add(GridCell(value, isFormula: isFormula(r, c)));
       }
       rows.add(cells);
     }
