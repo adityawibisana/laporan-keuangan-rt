@@ -270,32 +270,42 @@ class _Selectors extends StatelessWidget {
   }
 }
 
-class _GridEditor extends StatelessWidget {
+class _GridEditor extends StatefulWidget {
   final TabGrid grid;
   final Map<String, TextEditingController> controllers;
 
   const _GridEditor({required this.grid, required this.controllers});
 
+  @override
+  State<_GridEditor> createState() => _GridEditorState();
+}
+
+class _GridEditorState extends State<_GridEditor> {
   static const _cellWidth = 130.0;
+
+  /// The single cell currently promoted to a live TextField, keyed "row_col".
+  /// Every other cell renders as a cheap Text, which keeps scrolling smooth on
+  /// wide/tall grids (a TextField per cell builds a heavy EditableText each).
+  String? _editing;
 
   @override
   Widget build(BuildContext context) {
-    final cols = grid.columnCount;
+    final cols = widget.grid.columnCount;
+    // Build rows lazily so a large padded tab doesn't construct everything at
+    // once; the fixed-width SizedBox lets the vertical ListView live inside the
+    // horizontal scroll view.
+    final rowWidth = cols * (_cellWidth + 4) + 16;
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
-      child: SingleChildScrollView(
-        child: Padding(
+      child: SizedBox(
+        width: rowWidth,
+        child: ListView.builder(
           padding: const EdgeInsets.all(8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          itemCount: widget.grid.rows.length,
+          itemExtent: 48,
+          itemBuilder: (context, r) => Row(
             children: [
-              for (var r = 0; r < grid.rows.length; r++)
-                Row(
-                  children: [
-                    for (var c = 0; c < cols; c++)
-                      _cell(context, r, c),
-                  ],
-                ),
+              for (var c = 0; c < cols; c++) _cell(context, r, c),
             ],
           ),
         ),
@@ -304,28 +314,63 @@ class _GridEditor extends StatelessWidget {
   }
 
   Widget _cell(BuildContext context, int r, int c) {
-    final row = grid.rows[r];
+    final row = widget.grid.rows[r];
     final cell = c < row.length ? row[c] : null;
     final scheme = Theme.of(context).colorScheme;
 
     if (cell == null) {
       return const SizedBox(width: _cellWidth, height: 44);
     }
+
     if (cell.isEditable) {
-      return Container(
-        width: _cellWidth,
-        padding: const EdgeInsets.all(2),
-        child: TextField(
-          controller: controllers['${r}_$c'],
-          style: const TextStyle(fontSize: 12),
-          decoration: const InputDecoration(
-            isDense: true,
-            contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-            border: OutlineInputBorder(),
+      final key = '${r}_$c';
+      final controller = widget.controllers[key];
+
+      // Active editor: the one tapped cell. Autofocus and drop back to a Text
+      // when focus leaves (tap elsewhere / scroll dismiss).
+      if (_editing == key) {
+        return Container(
+          width: _cellWidth,
+          padding: const EdgeInsets.all(2),
+          child: TextField(
+            controller: controller,
+            autofocus: true,
+            style: const TextStyle(fontSize: 12),
+            decoration: const InputDecoration(
+              isDense: true,
+              contentPadding:
+                  EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              border: OutlineInputBorder(),
+            ),
+            onTapOutside: (_) => setState(() => _editing = null),
+            onEditingComplete: () => setState(() => _editing = null),
+          ),
+        );
+      }
+
+      // Idle editable cell: a tappable, text-field-looking box (cheap to build).
+      return GestureDetector(
+        onTap: () => setState(() => _editing = key),
+        child: Container(
+          width: _cellWidth,
+          height: 40,
+          margin: const EdgeInsets.all(2),
+          alignment: Alignment.centerLeft,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: BoxDecoration(
+            border: Border.all(color: Theme.of(context).dividerColor),
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Text(
+            controller?.text ?? cell.value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 12),
           ),
         ),
       );
     }
+
     // Locked / computed cell.
     return Container(
       width: _cellWidth,
