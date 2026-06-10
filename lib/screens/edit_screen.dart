@@ -61,7 +61,7 @@ class _EditScreenState extends State<EditScreen> {
     }
   }
 
-  void _save(TabGrid grid) {
+  List<CellEdit> _collectEdits(TabGrid grid) {
     final edits = <CellEdit>[];
     for (var r = 0; r < grid.rows.length; r++) {
       for (var c = 0; c < grid.rows[r].length; c++) {
@@ -73,6 +73,11 @@ class _EditScreenState extends State<EditScreen> {
         }
       }
     }
+    return edits;
+  }
+
+  void _save(TabGrid grid) {
+    final edits = _collectEdits(grid);
     final l10n = AppLocalizations.of(context);
     if (edits.isEmpty) {
       ScaffoldMessenger.of(context)
@@ -81,6 +86,13 @@ class _EditScreenState extends State<EditScreen> {
       return;
     }
     context.read<EditCubit>().save(_title, edits);
+  }
+
+  /// Save triggered inline from the keyboard action button while moving across
+  /// columns. Stays quiet when nothing changed (no "no changes" snackbar).
+  void _saveChanged(TabGrid grid) {
+    final edits = _collectEdits(grid);
+    if (edits.isNotEmpty) context.read<EditCubit>().save(_title, edits);
   }
 
   @override
@@ -198,7 +210,11 @@ class _EditScreenState extends State<EditScreen> {
       case EditStatus.saving:
         final grid = state.grid;
         if (grid == null) return const SizedBox.shrink();
-        return _GridEditor(grid: grid, controllers: _controllers);
+        return _GridEditor(
+          grid: grid,
+          controllers: _controllers,
+          onSave: () => _saveChanged(grid),
+        );
     }
   }
 }
@@ -274,7 +290,14 @@ class _GridEditor extends StatefulWidget {
   final TabGrid grid;
   final Map<String, TextEditingController> controllers;
 
-  const _GridEditor({required this.grid, required this.controllers});
+  /// Called when the user commits a cell with the keyboard action button.
+  final VoidCallback onSave;
+
+  const _GridEditor({
+    required this.grid,
+    required this.controllers,
+    required this.onSave,
+  });
 
   @override
   State<_GridEditor> createState() => _GridEditorState();
@@ -313,6 +336,16 @@ class _GridEditorState extends State<_GridEditor> {
     );
   }
 
+  /// The next editable cell to the right of (r, c) in the same row, or null if
+  /// this is the last editable column in the row.
+  String? _nextEditableKey(int r, int c) {
+    final row = widget.grid.rows[r];
+    for (var nc = c + 1; nc < row.length; nc++) {
+      if (row[nc].isEditable) return '${r}_$nc';
+    }
+    return null;
+  }
+
   Widget _cell(BuildContext context, int r, int c) {
     final row = widget.grid.rows[r];
     final cell = c < row.length ? row[c] : null;
@@ -329,6 +362,7 @@ class _GridEditorState extends State<_GridEditor> {
       // Active editor: the one tapped cell. Autofocus and drop back to a Text
       // when focus leaves (tap elsewhere / scroll dismiss).
       if (_editing == key) {
+        final nextKey = _nextEditableKey(r, c);
         return Container(
           width: _cellWidth,
           padding: const EdgeInsets.all(2),
@@ -336,6 +370,8 @@ class _GridEditorState extends State<_GridEditor> {
             controller: controller,
             autofocus: true,
             style: const TextStyle(fontSize: 12),
+            textInputAction:
+                nextKey != null ? TextInputAction.next : TextInputAction.done,
             decoration: const InputDecoration(
               isDense: true,
               contentPadding:
@@ -343,7 +379,15 @@ class _GridEditorState extends State<_GridEditor> {
               border: OutlineInputBorder(),
             ),
             onTapOutside: (_) => setState(() => _editing = null),
-            onEditingComplete: () => setState(() => _editing = null),
+            // Suppress the default focus traversal so we control where the
+            // caret lands (handled in onSubmitted).
+            onEditingComplete: () {},
+            // Action button: save the row's changes, then jump to the next
+            // editable column (or close the keyboard if this is the last one).
+            onSubmitted: (_) {
+              widget.onSave();
+              setState(() => _editing = nextKey);
+            },
           ),
         );
       }
