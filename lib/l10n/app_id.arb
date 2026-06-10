@@ -1,0 +1,23 @@
+{
+  "@@locale": "id",
+  "appTitle": "Laporan Keuangan",
+  "neighborhood": "RT03 / RW21 Bukit Permai",
+  "closingBalance": "Saldo Akhir",
+  "income": "Penerimaan",
+  "expenses": "Pengeluaran",
+  "totalIncome": "Total Penerimaan",
+  "totalExpenses": "Total Pengeluaran",
+  "categoryBreakdown": "Rincian Pos",
+  "total": "Total",
+  "noData": "Tidak ada data",
+  "loadFailed": "Gagal memuat data",
+  "language": "Bahasa",
+  "languageIndonesian": "Bahasa Indonesia",
+  "languageEnglish": "English",
+  "refresh": "Muat ulang",
+  "updating": "Memperbarui…",
+  "offlineNotice": "Luring — menampilkan data tersimpan",
+  "updateFailed": "Gagal memperbarui dari sumber",
+  "updatedFromSource": "Diperbarui dari sumber",
+  "retry": "Coba lagi"
+}

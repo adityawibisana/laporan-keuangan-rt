@@ -1,0 +1,70 @@
+// ignore: unused_import
+import 'package:intl/intl.dart' as intl;
+import 'app_localizations.dart';
+
+// ignore_for_file: type=lint
+
+/// The translations for Indonesian (`id`).
+class AppLocalizationsId extends AppLocalizations {
+  AppLocalizationsId([String locale = 'id']) : super(locale);
+
+  @override
+  String get appTitle => 'Laporan Keuangan';
+
+  @override
+  String get neighborhood => 'RT03 / RW21 Bukit Permai';
+
+  @override
+  String get closingBalance => 'Saldo Akhir';
+
+  @override
+  String get income => 'Penerimaan';
+
+  @override
+  String get expenses => 'Pengeluaran';
+
+  @override
+  String get totalIncome => 'Total Penerimaan';
+
+  @override
+  String get totalExpenses => 'Total Pengeluaran';
+
+  @override
+  String get categoryBreakdown => 'Rincian Pos';
+
+  @override
+  String get total => 'Total';
+
+  @override
+  String get noData => 'Tidak ada data';
+
+  @override
+  String get loadFailed => 'Gagal memuat data';
+
+  @override
+  String get language => 'Bahasa';
+
+  @override
+  String get languageIndonesian => 'Bahasa Indonesia';
+
+  @override
+  String get languageEnglish => 'English';
+
+  @override
+  String get refresh => 'Muat ulang';
+
+  @override
+  String get updating => 'Memperbarui…';
+
+  @override
+  String get offlineNotice => 'Luring — menampilkan data tersimpan';
+
+  @override
+  String get updateFailed => 'Gagal memperbarui dari sumber';
+
+  @override
+  String get updatedFromSource => 'Diperbarui dari sumber';
+
+  @override
+  String get retry => 'Coba lagi';
+}

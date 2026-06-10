@@ -1,0 +1,23 @@
+{
+  "@@locale": "en",
+  "appTitle": "Financial Report",
+  "neighborhood": "RT03 / RW21 Bukit Permai",
+  "closingBalance": "Closing Balance",
+  "income": "Income",
+  "expenses": "Expenses",
+  "totalIncome": "Total Income",
+  "totalExpenses": "Total Expenses",
+  "categoryBreakdown": "Category Breakdown",
+  "total": "Total",
+  "noData": "No data",
+  "loadFailed": "Failed to load data",
+  "language": "Language",
+  "languageIndonesian": "Indonesian",
+  "languageEnglish": "English",
+  "refresh": "Refresh",
+  "updating": "Updating…",
+  "offlineNotice": "Offline — showing saved data",
+  "updateFailed": "Couldn't update from the source",
+  "updatedFromSource": "Updated from the source",
+  "retry": "Retry"
+}
