@@ -2,11 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 
+import '../bloc/auth/auth_cubit.dart';
+import '../bloc/edit/edit_cubit.dart';
 import '../bloc/locale/locale_cubit.dart';
 import '../bloc/recap/recap_bloc.dart';
+import '../config/app_config.dart';
+import '../data/sheet_editor.dart';
 import '../l10n/app_localizations.dart';
 import '../models/recap.dart';
 import '../utils/rupiah.dart';
+import 'edit_screen.dart';
 
 /// The single screen of v1: shows one month's recap (Laporan Keuangan), lets the
 /// user switch months, switch language, and refresh from the source sheet.
@@ -17,11 +22,19 @@ class RecapScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
 
-    return Scaffold(
+    return BlocListener<AuthCubit, AuthState>(
+      listenWhen: (p, c) => p.error != c.error && c.error != null,
+      listener: (context, state) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+              SnackBar(content: Text('${l10n.signInFailed}: ${state.error}')));
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: Text(l10n.appTitle),
         centerTitle: true,
-        actions: const [_RefreshButton(), _LanguageButton()],
+        actions: const [_AccountButton(), _RefreshButton(), _LanguageButton()],
       ),
       body: BlocConsumer<RecapBloc, RecapState>(
         listenWhen: (prev, curr) =>
@@ -53,6 +66,81 @@ class RecapScreen extends StatelessWidget {
           }
         },
       ),
+      ),
+    );
+  }
+}
+
+class _AccountButton extends StatelessWidget {
+  const _AccountButton();
+
+  Future<void> _openEditor(BuildContext context) async {
+    final session = context.read<AuthCubit>().session;
+    if (session == null) return;
+    final recapBloc = context.read<RecapBloc>();
+    final monthIndex = (DateTime.now().month - 1).clamp(0, 11);
+
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => BlocProvider(
+          create: (_) => EditCubit(SheetEditor(
+            client: session.client,
+            spreadsheetId: AppConfig.spreadsheetId,
+          )),
+          child: EditScreen(initialMonthIndex: monthIndex),
+        ),
+      ),
+    );
+    // Returning from the editor — refresh the recap to reflect saved changes.
+    recapBloc.add(const RecapRefreshRequested());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final auth = context.watch<AuthCubit>();
+
+    // Editing isn't available on this platform/config (e.g. desktop without an
+    // OAuth client configured) — hide the control entirely.
+    if (!auth.isAvailable) return const SizedBox.shrink();
+
+    if (auth.state.status == AuthStatus.signingIn) {
+      return const Padding(
+        padding: EdgeInsets.all(14),
+        child: SizedBox(
+          width: 18,
+          height: 18,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    }
+
+    if (auth.state.isSignedIn) {
+      return PopupMenuButton<String>(
+        icon: const Icon(Icons.account_circle),
+        tooltip: auth.session?.email,
+        onSelected: (v) {
+          if (v == 'edit') _openEditor(context);
+          if (v == 'out') context.read<AuthCubit>().signOut();
+        },
+        itemBuilder: (context) => [
+          PopupMenuItem<String>(
+            enabled: false,
+            child: Text(
+              auth.session?.email ?? '',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+          PopupMenuItem<String>(value: 'edit', child: Text(l10n.editData)),
+          PopupMenuItem<String>(value: 'out', child: Text(l10n.signOut)),
+        ],
+      );
+    }
+
+    return IconButton(
+      icon: const Icon(Icons.login),
+      tooltip: l10n.signInToEdit,
+      onPressed: () => context.read<AuthCubit>().signIn(),
     );
   }
 }

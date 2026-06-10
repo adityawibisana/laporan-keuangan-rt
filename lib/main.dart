@@ -5,8 +5,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'auth/auth_service_factory.dart';
+import 'bloc/auth/auth_cubit.dart';
 import 'bloc/locale/locale_cubit.dart';
 import 'bloc/recap/recap_bloc.dart';
 import 'data/recap_repository.dart';
@@ -37,11 +40,14 @@ Future<void> main() async {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
   }
-  runApp(const LaporanKeuanganApp());
+
+  final prefs = await SharedPreferences.getInstance();
+  runApp(LaporanKeuanganApp(prefs: prefs));
 }
 
 class LaporanKeuanganApp extends StatelessWidget {
-  const LaporanKeuanganApp({super.key});
+  final SharedPreferences prefs;
+  const LaporanKeuanganApp({super.key, required this.prefs});
 
   @override
   Widget build(BuildContext context) {
@@ -51,7 +57,8 @@ class LaporanKeuanganApp extends StatelessWidget {
       ],
       child: MultiBlocProvider(
         providers: [
-          BlocProvider(create: (_) => LocaleCubit()),
+          BlocProvider(create: (_) => LocaleCubit(prefs)),
+          BlocProvider(create: (_) => AuthCubit(createAuthService())),
           BlocProvider(
             create: (context) => RecapBloc(
               context.read<RecapRepository>(),

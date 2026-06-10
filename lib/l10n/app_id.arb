@@ -19,5 +19,17 @@
   "offlineNotice": "Luring — menampilkan data tersimpan",
   "updateFailed": "Gagal memperbarui dari sumber",
   "updatedFromSource": "Diperbarui dari sumber",
-  "retry": "Coba lagi"
+  "retry": "Coba lagi",
+  "signIn": "Masuk",
+  "signOut": "Keluar",
+  "signInToEdit": "Masuk untuk mengubah",
+  "signInFailed": "Gagal masuk",
+  "editData": "Ubah data",
+  "editTitle": "Ubah",
+  "save": "Simpan",
+  "saved": "Tersimpan",
+  "saveFailed": "Gagal menyimpan",
+  "noChanges": "Tidak ada perubahan untuk disimpan",
+  "month": "Bulan",
+  "lockedNotice": "Sel abu-abu dihitung otomatis dan tidak dapat diubah."
 }

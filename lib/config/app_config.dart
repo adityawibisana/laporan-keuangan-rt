@@ -34,4 +34,23 @@ class AppConfig {
   static Uri get xlsxExportUri => Uri.parse(
         'https://docs.google.com/spreadsheets/d/$spreadsheetId/export?format=xlsx',
       );
+
+  // --- OAuth (editing) configuration ---
+
+  static String? get desktopClientId =>
+      dotenv.maybeGet('GOOGLE_DESKTOP_CLIENT_ID')?.trim();
+
+  static String? get desktopClientSecret =>
+      dotenv.maybeGet('GOOGLE_DESKTOP_CLIENT_SECRET')?.trim();
+
+  /// Web OAuth client ID used as the serverClientId for mobile sign-in.
+  static String? get serverClientId {
+    final v = dotenv.maybeGet('GOOGLE_SERVER_CLIENT_ID')?.trim();
+    return (v == null || v.isEmpty) ? null : v;
+  }
+
+  /// Whether desktop sign-in is configured (a Desktop-app OAuth client present).
+  static bool get hasDesktopOAuth =>
+      (desktopClientId?.isNotEmpty ?? false) &&
+      (desktopClientSecret?.isNotEmpty ?? false);
 }

@@ -67,4 +67,41 @@ class AppLocalizationsId extends AppLocalizations {
 
   @override
   String get retry => 'Coba lagi';
+
+  @override
+  String get signIn => 'Masuk';
+
+  @override
+  String get signOut => 'Keluar';
+
+  @override
+  String get signInToEdit => 'Masuk untuk mengubah';
+
+  @override
+  String get signInFailed => 'Gagal masuk';
+
+  @override
+  String get editData => 'Ubah data';
+
+  @override
+  String get editTitle => 'Ubah';
+
+  @override
+  String get save => 'Simpan';
+
+  @override
+  String get saved => 'Tersimpan';
+
+  @override
+  String get saveFailed => 'Gagal menyimpan';
+
+  @override
+  String get noChanges => 'Tidak ada perubahan untuk disimpan';
+
+  @override
+  String get month => 'Bulan';
+
+  @override
+  String get lockedNotice =>
+      'Sel abu-abu dihitung otomatis dan tidak dapat diubah.';
 }

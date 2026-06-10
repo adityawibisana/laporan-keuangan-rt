@@ -19,5 +19,17 @@
   "offlineNotice": "Offline — showing saved data",
   "updateFailed": "Couldn't update from the source",
   "updatedFromSource": "Updated from the source",
-  "retry": "Retry"
+  "retry": "Retry",
+  "signIn": "Sign in",
+  "signOut": "Sign out",
+  "signInToEdit": "Sign in to edit",
+  "signInFailed": "Sign-in failed",
+  "editData": "Edit data",
+  "editTitle": "Edit",
+  "save": "Save",
+  "saved": "Saved",
+  "saveFailed": "Save failed",
+  "noChanges": "No changes to save",
+  "month": "Month",
+  "lockedNotice": "Grey cells are computed automatically and can't be edited."
 }

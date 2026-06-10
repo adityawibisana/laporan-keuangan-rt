@@ -16,6 +16,11 @@
 # VS Code
 .vscode/
 
+# Local secrets / config — keep .env.example (committed) but never the real .env
+.env
+*.keystore
+client_secret_*.json
+
 
 
 # Flutter repo-specific

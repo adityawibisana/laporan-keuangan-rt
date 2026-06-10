@@ -67,4 +67,41 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get retry => 'Retry';
+
+  @override
+  String get signIn => 'Sign in';
+
+  @override
+  String get signOut => 'Sign out';
+
+  @override
+  String get signInToEdit => 'Sign in to edit';
+
+  @override
+  String get signInFailed => 'Sign-in failed';
+
+  @override
+  String get editData => 'Edit data';
+
+  @override
+  String get editTitle => 'Edit';
+
+  @override
+  String get save => 'Save';
+
+  @override
+  String get saved => 'Saved';
+
+  @override
+  String get saveFailed => 'Save failed';
+
+  @override
+  String get noChanges => 'No changes to save';
+
+  @override
+  String get month => 'Month';
+
+  @override
+  String get lockedNotice =>
+      'Grey cells are computed automatically and can\'t be edited.';
 }

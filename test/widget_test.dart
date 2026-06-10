@@ -6,12 +6,23 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:laporan_keuangan_rt/auth/auth_service.dart';
+import 'package:laporan_keuangan_rt/bloc/auth/auth_cubit.dart';
 import 'package:laporan_keuangan_rt/bloc/locale/locale_cubit.dart';
 import 'package:laporan_keuangan_rt/bloc/recap/recap_bloc.dart';
 import 'package:laporan_keuangan_rt/data/recap_repository.dart';
 import 'package:laporan_keuangan_rt/l10n/app_localizations.dart';
 import 'package:laporan_keuangan_rt/models/recap.dart';
 import 'package:laporan_keuangan_rt/screens/recap_screen.dart';
+
+class _FakeAuthService implements AuthService {
+  @override
+  bool get isAvailable => false; // hides the account button in tests
+  @override
+  Future<AuthSession> signIn() async => throw AuthException('unused');
+  @override
+  Future<void> signOut() async {}
+}
 
 class _FakeRecapRepository implements RecapRepository {
   static const _data = [
@@ -44,6 +55,7 @@ Widget _wrap(Locale locale) {
   return MultiBlocProvider(
     providers: [
       BlocProvider(create: (_) => LocaleCubit()),
+      BlocProvider(create: (_) => AuthCubit(_FakeAuthService())),
       BlocProvider(
         create: (_) =>
             RecapBloc(_FakeRecapRepository(), now: () => DateTime(2026, 1, 15))
