@@ -200,6 +200,12 @@ abstract class AppLocalizations {
   /// **'Offline — showing saved data'**
   String get offlineNotice;
 
+  /// No description provided for @notReadyNotice.
+  ///
+  /// In en, this message translates to:
+  /// **'This month\'s data isn\'t available yet'**
+  String get notReadyNotice;
+
   /// No description provided for @updateFailed.
   ///
   /// In en, this message translates to:

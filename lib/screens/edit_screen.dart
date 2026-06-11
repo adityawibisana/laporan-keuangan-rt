@@ -22,10 +22,17 @@ class EditScreen extends StatefulWidget {
 
 class _EditScreenState extends State<EditScreen> {
   late int _monthIndex;
-  bool _isIncome = true;
+  bool _isIncome = false;
 
   /// Controllers for editable cells, keyed "row_col".
   final Map<String, TextEditingController> _controllers = {};
+
+  /// The grid the controllers were last built for. Used to rebuild controllers
+  /// only when the grid instance actually changes (a new load/save result), not
+  /// on every state emission (e.g. entering `saving`), which would needlessly
+  /// dispose and recreate every controller — and yank the bottom edit bar's
+  /// controller out from under it mid-edit.
+  TabGrid? _controllersGrid;
 
   @override
   void initState() {
@@ -111,9 +118,12 @@ class _EditScreenState extends State<EditScreen> {
         }
       },
       builder: (context, state) {
-        if (state.status == EditStatus.ready ||
-            state.status == EditStatus.saving) {
-          if (state.grid != null) _rebuildControllers(state.grid!);
+        if ((state.status == EditStatus.ready ||
+                state.status == EditStatus.saving) &&
+            state.grid != null &&
+            !identical(state.grid, _controllersGrid)) {
+          _rebuildControllers(state.grid!);
+          _controllersGrid = state.grid;
         }
         final saving = state.status == EditStatus.saving;
 
@@ -264,14 +274,14 @@ class _Selectors extends StatelessWidget {
             child: SegmentedButton<bool>(
               segments: [
                 ButtonSegment(
-                  value: true,
-                  label: Text(incomeLabel),
-                  icon: const Icon(Icons.add, size: 16),
-                ),
-                ButtonSegment(
                   value: false,
                   label: Text(expenseLabel),
                   icon: const Icon(Icons.remove, size: 16),
+                ),
+                ButtonSegment(
+                  value: true,
+                  label: Text(incomeLabel),
+                  icon: const Icon(Icons.add, size: 16),
                 ),
               ],
               selected: {isIncome},
@@ -312,7 +322,13 @@ class _GridEditorState extends State<_GridEditor> {
   /// bottom (like the Google Sheets app). This keeps every grid cell a cheap
   /// Text — no EditableText to slow scrolling — and keeps the keyboard open
   /// while moving between cells (the bar is the one and only text field).
-  String? _selected;
+  ///
+  /// It's a [ValueNotifier] rather than plain state so that changing the
+  /// selection (tap, or "next" during data entry) does NOT rebuild the whole
+  /// grid via setState. Instead, only the two cells whose selected-state flips
+  /// rebuild (and the bottom bar). That's what keeps repeated "next" presses
+  /// snappy on wide grids.
+  final ValueNotifier<String?> _selected = ValueNotifier<String?>(null);
 
   /// Drives horizontal scrolling so we can reveal the selected cell.
   final ScrollController _hController = ScrollController();
@@ -322,6 +338,7 @@ class _GridEditorState extends State<_GridEditor> {
 
   @override
   void dispose() {
+    _selected.dispose();
     _hController.dispose();
     _barFocus.dispose();
     super.dispose();
@@ -357,6 +374,10 @@ class _GridEditorState extends State<_GridEditor> {
     // TableView virtualizes BOTH axes — only the cells visible in the viewport
     // are built and painted. (The old horizontal SingleChildScrollView built
     // every column of every visible row, which is what made wide tabs janky.)
+    //
+    // Note: this build does NOT read `_selected`, so changing the selection
+    // never rebuilds the TableView. Cells subscribe to `_selected` themselves
+    // and only the ones whose selection flips repaint.
     return Column(
       children: [
         Expanded(
@@ -381,7 +402,11 @@ class _GridEditorState extends State<_GridEditor> {
             ),
           ),
         ),
-        _editBar(context),
+        // Only the bar reacts to selection changes here; the grid above stays put.
+        ValueListenableBuilder<String?>(
+          valueListenable: _selected,
+          builder: (context, _, _) => _editBar(context),
+        ),
       ],
     );
   }
@@ -389,7 +414,7 @@ class _GridEditorState extends State<_GridEditor> {
   /// Selects [key], moves the caret to the end of its value, focuses the bottom
   /// edit bar (opening the keyboard), and scrolls the cell into view.
   void _select(String key) {
-    setState(() => _selected = key);
+    _selected.value = key;
     final ctrl = widget.controllers[key];
     if (ctrl != null) {
       ctrl.selection = TextSelection.collapsed(offset: ctrl.text.length);
@@ -404,7 +429,7 @@ class _GridEditorState extends State<_GridEditor> {
   /// (closing the keyboard if there is none). The bar stays focused throughout,
   /// so the keyboard never closes between cells.
   void _moveToNext() {
-    final key = _selected;
+    final key = _selected.value;
     if (key == null) return;
     final parts = key.split('_');
     final r = int.parse(parts[0]);
@@ -415,7 +440,7 @@ class _GridEditorState extends State<_GridEditor> {
       return;
     }
     _autoDateOnEntry(nextKey);
-    setState(() => _selected = nextKey);
+    _selected.value = nextKey;
     final ctrl = widget.controllers[nextKey];
     if (ctrl != null) {
       ctrl.selection = TextSelection.collapsed(offset: ctrl.text.length);
@@ -429,7 +454,7 @@ class _GridEditorState extends State<_GridEditor> {
   /// Clears the selection and dismisses the keyboard.
   void _done() {
     _barFocus.unfocus();
-    setState(() => _selected = null);
+    _selected.value = null;
   }
 
   /// Scrolls horizontally so column [col] sits fully inside the viewport. Defers
@@ -465,7 +490,7 @@ class _GridEditorState extends State<_GridEditor> {
   Widget _editBar(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final key = _selected;
+    final key = _selected.value;
     final controller = key == null ? null : widget.controllers[key];
     final hasSel = controller != null;
 
@@ -605,37 +630,19 @@ class _GridEditorState extends State<_GridEditor> {
 
     if (cell.isEditable) {
       final key = '${r}_$c';
-      final controller = widget.controllers[key];
-      final selected = key == _selected;
-
-      // Tapping selects the cell; editing happens in the bottom bar. The
-      // selected cell mirrors the bar live via a ListenableBuilder on its
-      // controller; every other cell is a plain Text, which is what keeps a
-      // wide/tall grid scrolling smoothly (no EditableText anywhere).
-      return GestureDetector(
+      // Editing happens in the bottom bar. Each editable cell watches the shared
+      // `_selected` notifier and only rebuilds when ITS own selected-state
+      // flips — so moving the selection repaints just the two affected cells,
+      // not the whole viewport. Every cell is a plain Text (no EditableText),
+      // which is what keeps a wide/tall grid scrolling smoothly.
+      return _EditableCell(
+        cellKey: key,
+        controller: widget.controllers[key],
+        fallback: cell.value,
+        selection: _selected,
         onTap: () => _select(key),
-        child: Container(
-          margin: const EdgeInsets.all(2),
-          alignment: Alignment.centerLeft,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          decoration: selected ? selectedDecoration : idleDecoration,
-          child: selected && controller != null
-              ? ListenableBuilder(
-                  listenable: controller,
-                  builder: (context, _) => Text(
-                    controller.text,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                )
-              : Text(
-                  controller?.text ?? cell.value,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 12),
-                ),
-        ),
+        idleDecoration: idleDecoration,
+        selectedDecoration: selectedDecoration,
       );
     }
 
@@ -650,6 +657,104 @@ class _GridEditorState extends State<_GridEditor> {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: lockedStyle,
+      ),
+    );
+  }
+}
+
+/// A single editable grid cell. Tapping it selects the cell (editing happens in
+/// the bottom bar). It listens to the shared [selection] notifier but only
+/// rebuilds when its own selected/unselected state changes, so moving the
+/// selection across the grid never rebuilds cells that aren't directly involved.
+///
+/// While selected, the cell mirrors the bottom bar's controller live (via a
+/// [ListenableBuilder]); otherwise it's a plain [Text] showing the controller's
+/// current text (so an edited value stays visible after moving on).
+class _EditableCell extends StatefulWidget {
+  final String cellKey;
+  final TextEditingController? controller;
+  final String fallback;
+  final ValueNotifier<String?> selection;
+  final VoidCallback onTap;
+  final BoxDecoration idleDecoration;
+  final BoxDecoration selectedDecoration;
+
+  const _EditableCell({
+    required this.cellKey,
+    required this.controller,
+    required this.fallback,
+    required this.selection,
+    required this.onTap,
+    required this.idleDecoration,
+    required this.selectedDecoration,
+  });
+
+  @override
+  State<_EditableCell> createState() => _EditableCellState();
+}
+
+class _EditableCellState extends State<_EditableCell> {
+  static const _textStyle = TextStyle(fontSize: 12);
+
+  late bool _isSelected;
+
+  @override
+  void initState() {
+    super.initState();
+    _isSelected = widget.selection.value == widget.cellKey;
+    widget.selection.addListener(_onSelectionChanged);
+  }
+
+  @override
+  void didUpdateWidget(_EditableCell old) {
+    super.didUpdateWidget(old);
+    // TableView reuses cell elements as you scroll, so the same State can be
+    // handed a different cell. Re-point the listener and re-evaluate selection.
+    if (!identical(old.selection, widget.selection)) {
+      old.selection.removeListener(_onSelectionChanged);
+      widget.selection.addListener(_onSelectionChanged);
+    }
+    _isSelected = widget.selection.value == widget.cellKey;
+  }
+
+  @override
+  void dispose() {
+    widget.selection.removeListener(_onSelectionChanged);
+    super.dispose();
+  }
+
+  void _onSelectionChanged() {
+    final selected = widget.selection.value == widget.cellKey;
+    if (selected != _isSelected) setState(() => _isSelected = selected);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = widget.controller;
+    return GestureDetector(
+      onTap: widget.onTap,
+      child: Container(
+        margin: const EdgeInsets.all(2),
+        alignment: Alignment.centerLeft,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        decoration:
+            _isSelected ? widget.selectedDecoration : widget.idleDecoration,
+        child: _isSelected && controller != null
+            ? ListenableBuilder(
+                listenable: controller,
+                builder: (context, _) => Text(
+                  controller.text,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: _textStyle,
+                ),
+              )
+            : Text(
+                controller?.text ?? widget.fallback,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: _textStyle,
+              ),
       ),
     );
   }

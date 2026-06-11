@@ -17,6 +17,7 @@
   "refresh": "Muat ulang",
   "updating": "Memperbarui…",
   "offlineNotice": "Luring — menampilkan data tersimpan",
+  "notReadyNotice": "Data bulan ini belum tersedia",
   "updateFailed": "Gagal memperbarui dari sumber",
   "updatedFromSource": "Diperbarui dari sumber",
   "retry": "Coba lagi",

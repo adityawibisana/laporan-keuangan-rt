@@ -7,6 +7,7 @@ import '../bloc/edit/edit_cubit.dart';
 import '../bloc/locale/locale_cubit.dart';
 import '../bloc/recap/recap_bloc.dart';
 import '../config/app_config.dart';
+import '../config/app_theme.dart';
 import '../data/sheet_editor.dart';
 import '../l10n/app_localizations.dart';
 import '../models/recap.dart';
@@ -63,7 +64,10 @@ class RecapScreen extends StatelessWidget {
               );
             case RecapStatus.success:
               final recap = state.current;
-              if (recap == null) {
+              // recap is null on the not-yet-data-ready placeholder month; that
+              // case is rendered as an "inactive" view by _RecapView. Only a
+              // genuinely empty data set falls through to the no-data message.
+              if (recap == null && !state.isPlaceholder) {
                 return Center(child: Text(l10n.noData));
               }
               return _RecapView(state: state, recap: recap);
@@ -152,16 +156,72 @@ class _AccountButton extends StatelessWidget {
 
 class _RecapView extends StatelessWidget {
   final RecapState state;
-  final MonthRecap recap;
+
+  /// The month to display, or null when showing the not-yet-data-ready
+  /// placeholder month (rendered "inactive").
+  final MonthRecap? recap;
 
   const _RecapView({required this.state, required this.recap});
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    final theme = Theme.of(context);
     final localeName = Localizations.localeOf(context).toString();
-    final monthTitle =
-        DateFormat.yMMMM(localeName).format(DateTime(recap.year, recap.month));
+
+    final inactive = recap == null;
+    final year = recap?.year ?? state.placeholderYear;
+    final month = recap?.month ?? state.placeholderMonth;
+    final monthTitle = DateFormat.yMMMM(localeName).format(DateTime(year, month));
+
+    // The not-ready month shows the same layout with empty/zero figures, dimmed
+    // so it reads as "this page isn't data-ready yet". The month switcher and
+    // the notice stay at full strength so the user can read it and step back.
+    final content = <Widget>[
+      Center(
+        child: Text(
+          l10n.neighborhood,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ),
+      const SizedBox(height: 28),
+      _SaldoHero(label: l10n.closingBalance, saldo: recap?.saldoAkhir ?? 0),
+      const SizedBox(height: 28),
+      const Divider(),
+      _Section(
+        title: l10n.income,
+        accent: AppTheme.income,
+        items: recap?.penerimaan ?? const [],
+        totalLabel: l10n.totalIncome,
+        total: recap?.totalPenerimaan ?? 0,
+        emptyLabel: l10n.noData,
+      ),
+      const Divider(),
+      _Section(
+        title: l10n.expenses,
+        accent: AppTheme.expense,
+        items: recap?.pengeluaran ?? const [],
+        totalLabel: l10n.totalExpenses,
+        total: recap?.totalPengeluaran ?? 0,
+        emptyLabel: l10n.noData,
+      ),
+      if (recap != null && recap!.rincian.isNotEmpty) ...[
+        const Divider(),
+        _Section(
+          title: l10n.categoryBreakdown,
+          accent: theme.colorScheme.onSurfaceVariant,
+          items: [
+            for (final e in recap!.rincian)
+              LineItem(keterangan: e.pos, amount: e.amount),
+          ],
+          totalLabel: l10n.total,
+          total: recap!.rincian.fold<int>(0, (s, e) => s + e.amount),
+          emptyLabel: l10n.noData,
+        ),
+      ],
+    ];
 
     return Column(
       children: [
@@ -171,7 +231,7 @@ class _RecapView extends StatelessWidget {
           _OfflineBanner(text: l10n.offlineNotice),
         Expanded(
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 40),
             children: [
               _MonthSwitcher(
                 title: monthTitle,
@@ -184,44 +244,40 @@ class _RecapView extends StatelessWidget {
                     .read<RecapBloc>()
                     .add(MonthSelected(state.selectedIndex + 1)),
               ),
-              const SizedBox(height: 8),
-              Center(
-                child: Text(
-                  l10n.neighborhood,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ),
-              const SizedBox(height: 16),
-              _SaldoCard(label: l10n.closingBalance, saldo: recap.saldoAkhir),
-              const SizedBox(height: 16),
-              _LineItemsCard(
-                title: l10n.income,
-                icon: Icons.south_west,
-                accent: const Color(0xFF2E7D32),
-                items: recap.penerimaan,
-                totalLabel: l10n.totalIncome,
-                total: recap.totalPenerimaan,
-                emptyLabel: l10n.noData,
-              ),
-              const SizedBox(height: 16),
-              _LineItemsCard(
-                title: l10n.expenses,
-                icon: Icons.north_east,
-                accent: const Color(0xFFC62828),
-                items: recap.pengeluaran,
-                totalLabel: l10n.totalExpenses,
-                total: recap.totalPengeluaran,
-                emptyLabel: l10n.noData,
-              ),
-              if (recap.rincian.isNotEmpty) ...[
-                const SizedBox(height: 16),
-                _RincianCard(
-                  title: l10n.categoryBreakdown,
-                  totalLabel: l10n.total,
-                  rincian: recap.rincian,
-                ),
-              ],
+              if (inactive) ...[
+                const SizedBox(height: 24),
+                _NotReadyNotice(text: l10n.notReadyNotice),
+                Opacity(opacity: 0.38, child: Column(children: content)),
+              ] else
+                ...content,
             ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// A muted, centered notice shown on the not-yet-data-ready placeholder month.
+class _NotReadyNotice extends StatelessWidget {
+  final String text;
+  const _NotReadyNotice({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(Icons.hourglass_empty, size: 16, color: scheme.onSurfaceVariant),
+        const SizedBox(width: 8),
+        Flexible(
+          child: Text(
+            text,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
           ),
         ),
       ],
@@ -384,77 +440,78 @@ class _MonthSwitcher extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        IconButton.filledTonal(
+        IconButton(
           onPressed: canPrev ? onPrev : null,
           icon: const Icon(Icons.chevron_left),
+          visualDensity: VisualDensity.compact,
         ),
         Expanded(
           child: Text(
             title,
             textAlign: TextAlign.center,
-            style: Theme.of(context)
-                .textTheme
-                .titleLarge
-                ?.copyWith(fontWeight: FontWeight.bold),
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
           ),
         ),
-        IconButton.filledTonal(
+        IconButton(
           onPressed: canNext ? onNext : null,
           icon: const Icon(Icons.chevron_right),
+          visualDensity: VisualDensity.compact,
         ),
       ],
     );
   }
 }
 
-class _SaldoCard extends StatelessWidget {
+/// The closing balance, presented as the screen's hero figure: a small muted
+/// label above a large monospace amount in the brand colour. No card/box —
+/// whitespace carries the emphasis.
+class _SaldoHero extends StatelessWidget {
   final String label;
   final int saldo;
-  const _SaldoCard({required this.label, required this.saldo});
+  const _SaldoHero({required this.label, required this.saldo});
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Card(
-      color: scheme.primaryContainer,
-      elevation: 0,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
-        child: Column(
-          children: [
-            Text(
-              label,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: scheme.onPrimaryContainer,
-                  ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              formatRupiah(saldo),
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    color: scheme.onPrimaryContainer,
-                    fontWeight: FontWeight.bold,
-                  ),
-            ),
-          ],
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Column(
+      children: [
+        Text(
+          label.toUpperCase(),
+          style: theme.textTheme.labelMedium?.copyWith(
+            color: scheme.onSurfaceVariant,
+            letterSpacing: 1.2,
+          ),
         ),
-      ),
+        const SizedBox(height: 10),
+        Text(
+          formatRupiah(saldo),
+          textAlign: TextAlign.center,
+          style: AppTheme.money(theme.textTheme.headlineMedium).copyWith(
+            color: scheme.primary,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
     );
   }
 }
 
-class _LineItemsCard extends StatelessWidget {
+/// A borderless section: an uppercase accent label, its line items as plain
+/// label/amount rows, and a bold total. Sections are separated by the hairline
+/// [Divider]s placed around them by the caller.
+class _Section extends StatelessWidget {
   final String title;
-  final IconData icon;
   final Color accent;
   final List<LineItem> items;
   final String totalLabel;
   final int total;
   final String emptyLabel;
 
-  const _LineItemsCard({
+  const _Section({
     required this.title,
-    required this.icon,
     required this.accent,
     required this.items,
     required this.totalLabel,
@@ -464,120 +521,60 @@ class _LineItemsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Theme.of(context).dividerColor),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(icon, color: accent, size: 20),
-                const SizedBox(width: 8),
-                Text(
-                  title,
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleMedium
-                      ?.copyWith(fontWeight: FontWeight.bold, color: accent),
-                ),
-              ],
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title.toUpperCase(),
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: accent,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.0,
             ),
-            const Divider(height: 20),
-            if (items.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Text(emptyLabel),
-              )
-            else
-              ...items.map((e) => _row(context, e.keterangan, e.amount)),
-            const Divider(height: 20),
-            _row(context, totalLabel, total, bold: true),
-          ],
-        ),
+          ),
+          const SizedBox(height: 12),
+          if (items.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Text(
+                emptyLabel,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            )
+          else
+            ...items.map((e) => _row(context, e.keterangan, e.amount)),
+          const SizedBox(height: 8),
+          _row(context, totalLabel, total, bold: true),
+        ],
       ),
     );
   }
 
   Widget _row(BuildContext context, String label, int amount,
       {bool bold = false}) {
-    final style = bold
-        ? Theme.of(context)
-            .textTheme
-            .bodyLarge
-            ?.copyWith(fontWeight: FontWeight.bold)
-        : Theme.of(context).textTheme.bodyMedium;
+    final theme = Theme.of(context);
+    final labelStyle = bold
+        ? theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700)
+        : theme.textTheme.bodyMedium
+            ?.copyWith(color: theme.colorScheme.onSurfaceVariant);
+    final amountStyle = AppTheme.money(theme.textTheme.bodyMedium).copyWith(
+      fontWeight: bold ? FontWeight.w700 : FontWeight.w500,
+      color: bold ? accent : theme.colorScheme.onSurface,
+    );
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(child: Text(label, style: style)),
-          const SizedBox(width: 12),
-          Text(formatRupiah(amount), style: style),
+          Expanded(child: Text(label, style: labelStyle)),
+          const SizedBox(width: 16),
+          Text(formatRupiah(amount), style: amountStyle),
         ],
-      ),
-    );
-  }
-}
-
-class _RincianCard extends StatelessWidget {
-  final String title;
-  final String totalLabel;
-  final List<RincianItem> rincian;
-  const _RincianCard({
-    required this.title,
-    required this.totalLabel,
-    required this.rincian,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final total = rincian.fold<int>(0, (sum, e) => sum + e.amount);
-    final boldStyle = Theme.of(context)
-        .textTheme
-        .bodyLarge
-        ?.copyWith(fontWeight: FontWeight.bold);
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Theme.of(context).dividerColor),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: boldStyle),
-            const Divider(height: 20),
-            ...rincian.map(
-              (e) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(
-                  children: [
-                    Expanded(child: Text(e.pos)),
-                    const SizedBox(width: 12),
-                    Text(formatRupiah(e.amount)),
-                  ],
-                ),
-              ),
-            ),
-            const Divider(height: 20),
-            Row(
-              children: [
-                Expanded(child: Text(totalLabel, style: boldStyle)),
-                const SizedBox(width: 12),
-                Text(formatRupiah(total), style: boldStyle),
-              ],
-            ),
-          ],
-        ),
       ),
     );
   }

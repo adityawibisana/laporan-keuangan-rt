@@ -83,6 +83,17 @@ flutter:
   assets:
     - .env
 
+  fonts:
+    # Monospace font for money figures — tabular, even-width digits that keep
+    # right-aligned amounts visually aligned.
+    - family: RobotoMono
+      fonts:
+        - asset: fonts/RobotoMono-Regular.ttf
+        - asset: fonts/RobotoMono-Medium.ttf
+          weight: 500
+        - asset: fonts/RobotoMono-Bold.ttf
+          weight: 700
+
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
 

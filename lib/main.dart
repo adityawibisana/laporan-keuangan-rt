@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'auth/auth_service_factory.dart';
+import 'config/app_theme.dart';
 import 'bloc/auth/auth_cubit.dart';
 import 'bloc/locale/locale_cubit.dart';
 import 'bloc/recap/recap_bloc.dart';
@@ -71,11 +72,7 @@ class LaporanKeuanganApp extends StatelessWidget {
               onGenerateTitle: (context) =>
                   AppLocalizations.of(context).appTitle,
               debugShowCheckedModeBanner: false,
-              theme: ThemeData(
-                colorScheme:
-                    ColorScheme.fromSeed(seedColor: const Color(0xFF1565C0)),
-                useMaterial3: true,
-              ),
+              theme: AppTheme.light,
               locale: locale,
               supportedLocales: LocaleCubit.supported,
               localizationsDelegates: const [

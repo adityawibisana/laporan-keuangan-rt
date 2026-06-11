@@ -99,7 +99,9 @@ class RecapBloc extends Bloc<RecapEvent, RecapState> {
   }
 
   void _onMonthSelected(MonthSelected event, Emitter<RecapState> emit) {
-    if (event.index < 0 || event.index >= state.months.length) return;
+    // Allow index == months.length: the not-yet-data-ready placeholder month
+    // shown one step past the last real month.
+    if (event.index < 0 || event.index > state.months.length) return;
     emit(state.copyWith(selectedIndex: event.index));
   }
 }

@@ -17,6 +17,7 @@
   "refresh": "Refresh",
   "updating": "Updating…",
   "offlineNotice": "Offline — showing saved data",
+  "notReadyNotice": "This month's data isn't available yet",
   "updateFailed": "Couldn't update from the source",
   "updatedFromSource": "Updated from the source",
   "retry": "Retry",

@@ -37,7 +37,25 @@ class RecapState extends Equatable {
           : null;
 
   bool get hasPrev => selectedIndex > 0;
-  bool get hasNext => selectedIndex < months.length - 1;
+
+  /// The user may step one month past the last data-ready month to preview that
+  /// the upcoming month exists but isn't filled in yet; [hasNext] therefore
+  /// allows reaching [months].length (the placeholder), but no further.
+  bool get hasNext => selectedIndex < months.length;
+
+  /// True when the selected month is the not-yet-data-ready month just after the
+  /// last real month. Its content is rendered "inactive" by the UI.
+  bool get isPlaceholder =>
+      months.isNotEmpty && selectedIndex == months.length;
+
+  /// Month number (1..12) for the placeholder month — the month following the
+  /// last data-ready one. Meaningful only when [isPlaceholder] is true.
+  int get placeholderMonth =>
+      months.isEmpty ? 0 : (months.last.month % 12) + 1;
+
+  /// Calendar year for the placeholder month, rolling over after December.
+  int get placeholderYear =>
+      months.isEmpty ? 0 : months.last.year + (months.last.month == 12 ? 1 : 0);
 
   RecapState copyWith({
     RecapStatus? status,

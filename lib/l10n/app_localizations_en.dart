@@ -60,6 +60,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get offlineNotice => 'Offline — showing saved data';
 
   @override
+  String get notReadyNotice => 'This month\'s data isn\'t available yet';
+
+  @override
   String get updateFailed => 'Couldn\'t update from the source';
 
   @override

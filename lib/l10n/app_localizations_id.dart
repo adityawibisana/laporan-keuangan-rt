@@ -60,6 +60,9 @@ class AppLocalizationsId extends AppLocalizations {
   String get offlineNotice => 'Luring — menampilkan data tersimpan';
 
   @override
+  String get notReadyNotice => 'Data bulan ini belum tersedia';
+
+  @override
   String get updateFailed => 'Gagal memperbarui dari sumber';
 
   @override
