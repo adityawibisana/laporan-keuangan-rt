@@ -186,10 +186,9 @@ class _RecapView extends StatelessWidget {
           ),
         ),
       ),
-      const SizedBox(height: 28),
+      const SizedBox(height: 20),
       _SaldoHero(label: l10n.closingBalance, saldo: recap?.saldoAkhir ?? 0),
-      const SizedBox(height: 28),
-      const Divider(),
+      const SizedBox(height: 16),
       _Section(
         title: l10n.income,
         accent: AppTheme.income,
@@ -198,7 +197,7 @@ class _RecapView extends StatelessWidget {
         total: recap?.totalPenerimaan ?? 0,
         emptyLabel: l10n.noData,
       ),
-      const Divider(),
+      const SizedBox(height: 12),
       _Section(
         title: l10n.expenses,
         accent: AppTheme.expense,
@@ -208,7 +207,7 @@ class _RecapView extends StatelessWidget {
         emptyLabel: l10n.noData,
       ),
       if (recap != null && recap!.rincian.isNotEmpty) ...[
-        const Divider(),
+        const SizedBox(height: 12),
         _Section(
           title: l10n.categoryBreakdown,
           accent: theme.colorScheme.onSurfaceVariant,
@@ -464,9 +463,8 @@ class _MonthSwitcher extends StatelessWidget {
   }
 }
 
-/// The closing balance, presented as the screen's hero figure: a small muted
-/// label above a large monospace amount in the brand colour. No card/box —
-/// whitespace carries the emphasis.
+/// The closing balance, presented as the screen's hero: a modern gradient teal
+/// card with the big monospace amount in white. Carries the brand colour.
 class _SaldoHero extends StatelessWidget {
   final String label;
   final int saldo;
@@ -475,33 +473,50 @@ class _SaldoHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    return Column(
-      children: [
-        Text(
-          label.toUpperCase(),
-          style: theme.textTheme.labelMedium?.copyWith(
-            color: scheme.onSurfaceVariant,
-            letterSpacing: 1.2,
-          ),
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 24),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF26A69A), Color(0xFF00695C)],
         ),
-        const SizedBox(height: 10),
-        Text(
-          formatRupiah(saldo),
-          textAlign: TextAlign.center,
-          style: AppTheme.money(theme.textTheme.headlineMedium).copyWith(
-            color: scheme.primary,
-            fontWeight: FontWeight.w700,
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.seed.withValues(alpha: 0.30),
+            blurRadius: 24,
+            offset: const Offset(0, 10),
           ),
-        ),
-      ],
+        ],
+      ),
+      child: Column(
+        children: [
+          Text(
+            label.toUpperCase(),
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: Colors.white70,
+              letterSpacing: 1.5,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            formatRupiah(saldo),
+            textAlign: TextAlign.center,
+            style: AppTheme.money(theme.textTheme.headlineMedium).copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
 
-/// A borderless section: an uppercase accent label, its line items as plain
-/// label/amount rows, and a bold total. Sections are separated by the hairline
-/// [Divider]s placed around them by the caller.
+/// A modern card section: a small accent header, its line items as label/amount
+/// rows, and a bold total. White card with rounded corners and a soft shadow.
 class _Section extends StatelessWidget {
   final String title;
   final Color accent;
@@ -522,18 +537,39 @@ class _Section extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 16),
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title.toUpperCase(),
-            style: theme.textTheme.labelMedium?.copyWith(
-              color: accent,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 1.0,
-            ),
+          Row(
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(color: accent, shape: BoxShape.circle),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                title.toUpperCase(),
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: accent,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.0,
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 12),
           if (items.isEmpty)

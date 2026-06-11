@@ -24,16 +24,20 @@ class AppTheme {
       brightness: Brightness.light,
     );
 
+    // Subtle neutral page background so the white cards lift off it with their
+    // soft shadows (a flat white-on-white card would be invisible).
+    const pageBackground = Color(0xFFF2F5F5);
+
     final base = ThemeData(
       colorScheme: scheme,
       useMaterial3: true,
-      scaffoldBackgroundColor: scheme.surface,
+      scaffoldBackgroundColor: pageBackground,
     );
 
     return base.copyWith(
-      // Flat app bar that blends into the surface — no heavy elevation/shadow.
+      // Flat app bar that blends into the page background — no heavy elevation.
       appBarTheme: AppBarTheme(
-        backgroundColor: scheme.surface,
+        backgroundColor: pageBackground,
         foregroundColor: scheme.onSurface,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
