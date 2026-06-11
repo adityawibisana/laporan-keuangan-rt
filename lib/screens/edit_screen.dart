@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderProxyBox;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
+import 'package:two_dimensional_scrollables/two_dimensional_scrollables.dart';
 
 import '../bloc/edit/edit_cubit.dart';
 import '../data/sheet_editor.dart';
@@ -88,13 +90,6 @@ class _EditScreenState extends State<EditScreen> {
     context.read<EditCubit>().save(_title, edits);
   }
 
-  /// Save triggered inline from the keyboard action button while moving across
-  /// columns. Stays quiet when nothing changed (no "no changes" snackbar).
-  void _saveChanged(TabGrid grid) {
-    final edits = _collectEdits(grid);
-    if (edits.isNotEmpty) context.read<EditCubit>().save(_title, edits);
-  }
-
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
@@ -108,7 +103,8 @@ class _EditScreenState extends State<EditScreen> {
           messenger
             ..hideCurrentSnackBar()
             ..showSnackBar(
-                SnackBar(content: Text('${l10n.saveFailed}: ${state.error}')));
+              SnackBar(content: Text('${l10n.saveFailed}: ${state.error}')),
+            );
         } else if (state.savedTick > 0) {
           messenger
             ..hideCurrentSnackBar()
@@ -116,7 +112,8 @@ class _EditScreenState extends State<EditScreen> {
         }
       },
       builder: (context, state) {
-        if (state.status == EditStatus.ready || state.status == EditStatus.saving) {
+        if (state.status == EditStatus.ready ||
+            state.status == EditStatus.saving) {
           if (state.grid != null) _rebuildControllers(state.grid!);
         }
         final saving = state.status == EditStatus.saving;
@@ -138,45 +135,52 @@ class _EditScreenState extends State<EditScreen> {
                 IconButton(
                   icon: const Icon(Icons.save),
                   tooltip: l10n.save,
-                  onPressed: state.grid == null ? null : () => _save(state.grid!),
+                  onPressed: state.grid == null
+                      ? null
+                      : () => _save(state.grid!),
                 ),
             ],
           ),
-          body: Column(
-            children: [
-              _Selectors(
-                monthIndex: _monthIndex,
-                isIncome: _isIncome,
-                incomeLabel: l10n.income,
-                expenseLabel: l10n.expenses,
-                monthLabel: l10n.month,
-                onMonth: (i) {
-                  setState(() => _monthIndex = i);
-                  _load();
-                },
-                onType: (income) {
-                  setState(() => _isIncome = income);
-                  _load();
-                },
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Row(
-                  children: [
-                    const Icon(Icons.info_outline, size: 14),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        l10n.lockedNotice,
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ),
-                  ],
+          body: SafeArea(
+            // AppBar handles the top inset; guard the bottom so the grid and
+            // keyboard "next" navigation aren't clipped by the system nav bar.
+            top: false,
+            child: Column(
+              children: [
+                _Selectors(
+                  monthIndex: _monthIndex,
+                  isIncome: _isIncome,
+                  incomeLabel: l10n.income,
+                  expenseLabel: l10n.expenses,
+                  monthLabel: l10n.month,
+                  onMonth: (i) {
+                    setState(() => _monthIndex = i);
+                    _load();
+                  },
+                  onType: (income) {
+                    setState(() => _isIncome = income);
+                    _load();
+                  },
                 ),
-              ),
-              const Divider(height: 16),
-              Expanded(child: _body(context, state)),
-            ],
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.info_outline, size: 14),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          l10n.lockedNotice,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 16),
+                Expanded(child: _body(context, state)),
+              ],
+            ),
           ),
         );
       },
@@ -210,11 +214,7 @@ class _EditScreenState extends State<EditScreen> {
       case EditStatus.saving:
         final grid = state.grid;
         if (grid == null) return const SizedBox.shrink();
-        return _GridEditor(
-          grid: grid,
-          controllers: _controllers,
-          onSave: () => _saveChanged(grid),
-        );
+        return _GridEditor(grid: grid, controllers: _controllers);
     }
   }
 }
@@ -290,14 +290,7 @@ class _GridEditor extends StatefulWidget {
   final TabGrid grid;
   final Map<String, TextEditingController> controllers;
 
-  /// Called when the user commits a cell with the keyboard action button.
-  final VoidCallback onSave;
-
-  const _GridEditor({
-    required this.grid,
-    required this.controllers,
-    required this.onSave,
-  });
+  const _GridEditor({required this.grid, required this.controllers});
 
   @override
   State<_GridEditor> createState() => _GridEditorState();
@@ -306,34 +299,172 @@ class _GridEditor extends StatefulWidget {
 class _GridEditorState extends State<_GridEditor> {
   static const _cellWidth = 130.0;
 
+  /// Column / row pixel extents. The +4 covers the 2px margin on each side of a
+  /// cell so the bordered boxes don't touch.
+  static const _colExtent = _cellWidth + 4;
+  static const _rowExtent = 48.0;
+  static const _columnSpan = TableSpan(
+    extent: FixedTableSpanExtent(_colExtent),
+  );
+  static const _rowSpan = TableSpan(extent: FixedTableSpanExtent(_rowExtent));
+
   /// The single cell currently promoted to a live TextField, keyed "row_col".
   /// Every other cell renders as a cheap Text, which keeps scrolling smooth on
   /// wide/tall grids (a TextField per cell builds a heavy EditableText each).
   String? _editing;
 
+  /// Drives horizontal scrolling so we can reveal the next column on IME "next".
+  final ScrollController _hController = ScrollController();
+
+  /// Focus for the single active editor. Shared because only one cell edits at
+  /// a time; we drive focus manually (not `autofocus`) so it lands AFTER the
+  /// target column is scrolled into view.
+  final FocusNode _editFocus = FocusNode();
+
+  @override
+  void dispose() {
+    _hController.dispose();
+    _editFocus.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final rows = widget.grid.rows;
+    if (rows.isEmpty) return const SizedBox.shrink();
     final cols = widget.grid.columnCount;
-    // Build rows lazily so a large padded tab doesn't construct everything at
-    // once; the fixed-width SizedBox lets the vertical ListView live inside the
-    // horizontal scroll view.
-    final rowWidth = cols * (_cellWidth + 4) + 16;
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: SizedBox(
-        width: rowWidth,
-        child: ListView.builder(
-          padding: const EdgeInsets.all(8),
-          itemCount: widget.grid.rows.length,
-          itemExtent: 48,
-          itemBuilder: (context, r) => Row(
-            children: [
-              for (var c = 0; c < cols; c++) _cell(context, r, c),
-            ],
-          ),
+
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    // Build the cell decorations and locked-text style once per build and share
+    // the instances across every cell. Allocating them per-cell while scrolling
+    // is wasteful, and reusing identical decorations lets the framework skip
+    // rebuilding box painters for cells that haven't changed.
+    final idleDecoration = BoxDecoration(
+      border: Border.all(color: theme.dividerColor),
+      borderRadius: BorderRadius.circular(4),
+    );
+    final lockedDecoration = BoxDecoration(
+      color: scheme.surfaceContainerHighest,
+      borderRadius: BorderRadius.circular(4),
+    );
+    final lockedStyle = TextStyle(fontSize: 12, color: scheme.onSurfaceVariant);
+
+    // TableView virtualizes BOTH axes — only the cells visible in the viewport
+    // are built and painted. (The old horizontal SingleChildScrollView built
+    // every column of every visible row, which is what made wide tabs janky.)
+    return TableView.builder(
+      horizontalDetails: ScrollableDetails.horizontal(controller: _hController),
+      columnCount: cols,
+      rowCount: rows.length,
+      pinnedRowCount: 1, // keep the header row visible while scrolling
+      columnBuilder: (_) => _columnSpan,
+      rowBuilder: (_) => _rowSpan,
+      cellBuilder: (context, vicinity) => TableViewCell(
+        child: _cell(
+          vicinity.row,
+          vicinity.column,
+          idleDecoration,
+          lockedDecoration,
+          lockedStyle,
         ),
       ),
     );
+  }
+
+  /// Promotes [key] to the live editor (or clears it when null) and focuses it
+  /// after the frame. Focus is driven manually (not via `autofocus`) so we
+  /// control its timing relative to scrolling.
+  void _startEditing(String? key) {
+    setState(() => _editing = key);
+    if (key == null) {
+      _editFocus.unfocus();
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _editFocus.requestFocus();
+    });
+  }
+
+  /// Handles the keyboard "next" action: move the editor to the next column
+  /// immediately (so the cursor follows), re-grab focus to keep the keyboard up,
+  /// then scroll that column fully into view. Because the editor is wrapped in a
+  /// [_SwallowShowOnScreen], focusing it never scrolls the table itself, so our
+  /// horizontal reveal runs uncontested (and nothing jumps vertically).
+  void _moveToNext(String key) {
+    final col = int.parse(key.split('_')[1]);
+    setState(() => _editing = key);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _editFocus.requestFocus();
+      _revealColumn(col).then((_) {
+        if (mounted) _editFocus.requestFocus();
+      });
+    });
+  }
+
+  /// Scrolls horizontally so column [col] sits fully inside the viewport.
+  /// Completes once the scroll animation (if any) finishes.
+  Future<void> _revealColumn(int col) {
+    if (!_hController.hasClients) return Future<void>.value();
+    final pos = _hController.position;
+    const pad = 12.0; // a little breathing room so the column isn't flush
+    final left = col * _colExtent;
+    final right = left + _colExtent;
+    var target = pos.pixels;
+    if (right + pad > pos.pixels + pos.viewportDimension) {
+      target = right + pad - pos.viewportDimension;
+    } else if (left - pad < pos.pixels) {
+      target = left - pad;
+    }
+    target = target.clamp(0.0, pos.maxScrollExtent);
+    if ((target - pos.pixels).abs() <= 0.5) return Future<void>.value();
+    return _hController.animateTo(
+      target,
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOut,
+    );
+  }
+
+  /// Column index whose header (grid row 0) equals [name], case-insensitive,
+  /// or null if there is no such column.
+  int? _columnByHeader(String name) {
+    if (widget.grid.rows.isEmpty) return null;
+    final header = widget.grid.rows[0];
+    final target = name.toLowerCase();
+    for (var c = 0; c < header.length; c++) {
+      if (header[c].value.trim().toLowerCase() == target) return c;
+    }
+    return null;
+  }
+
+  /// When navigation lands on the "Tanggal Pengeluaran" column, pre-fill today's
+  /// date — but only for a data row whose "Global" total has a value, and only
+  /// when the date cell is still empty (don't clobber a date the user set).
+  void _autoDateOnEntry(String key) {
+    final parts = key.split('_');
+    final r = int.parse(parts[0]);
+    final c = int.parse(parts[1]);
+    if (r == 0) return; // header row
+
+    final dateCol = _columnByHeader('tanggal pengeluaran');
+    if (dateCol == null || c != dateCol) return;
+    final globalCol = _columnByHeader('global');
+    if (globalCol == null) return;
+
+    final row = widget.grid.rows[r];
+    final globalText = globalCol < row.length
+        ? row[globalCol].value.trim()
+        : '';
+    final globalNum = double.tryParse(globalText);
+    final globalHasValue =
+        globalText.isNotEmpty && (globalNum == null || globalNum != 0);
+    if (!globalHasValue) return;
+
+    final ctrl = widget.controllers[key];
+    if (ctrl == null || ctrl.text.trim().isNotEmpty) return;
+    // Match the DD/MM/YYYY format the date column is displayed/edited in.
+    ctrl.text = DateFormat('dd/MM/yyyy').format(DateTime.now());
   }
 
   /// The next editable cell to the right of (r, c) in the same row, or null if
@@ -346,14 +477,17 @@ class _GridEditorState extends State<_GridEditor> {
     return null;
   }
 
-  Widget _cell(BuildContext context, int r, int c) {
+  Widget _cell(
+    int r,
+    int c,
+    BoxDecoration idleDecoration,
+    BoxDecoration lockedDecoration,
+    TextStyle lockedStyle,
+  ) {
     final row = widget.grid.rows[r];
     final cell = c < row.length ? row[c] : null;
-    final scheme = Theme.of(context).colorScheme;
 
-    if (cell == null) {
-      return const SizedBox(width: _cellWidth, height: 44);
-    }
+    if (cell == null) return const SizedBox.shrink();
 
     if (cell.isEditable) {
       final key = '${r}_$c';
@@ -363,48 +497,57 @@ class _GridEditorState extends State<_GridEditor> {
       // when focus leaves (tap elsewhere / scroll dismiss).
       if (_editing == key) {
         final nextKey = _nextEditableKey(r, c);
-        return Container(
-          width: _cellWidth,
+        return Padding(
           padding: const EdgeInsets.all(2),
-          child: TextField(
-            controller: controller,
-            autofocus: true,
-            style: const TextStyle(fontSize: 12),
-            textInputAction:
-                nextKey != null ? TextInputAction.next : TextInputAction.done,
-            decoration: const InputDecoration(
-              isDense: true,
-              contentPadding:
-                  EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-              border: OutlineInputBorder(),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: _SwallowShowOnScreen(
+              child: TextField(
+                controller: controller,
+                focusNode: _editFocus,
+                style: const TextStyle(fontSize: 12),
+                textInputAction: nextKey != null
+                    ? TextInputAction.next
+                    : TextInputAction.done,
+                decoration: const InputDecoration(
+                  isDense: true,
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 8,
+                  ),
+                  border: OutlineInputBorder(),
+                ),
+                onTapOutside: (_) => _startEditing(null),
+                // Suppress the default focus traversal so we control where the
+                // caret lands (handled in onSubmitted).
+                onEditingComplete: () {},
+                // Action button: jump to the next editable column (or close the
+                // keyboard if this is the last one), scrolling it fully into view.
+                // We deliberately do NOT save here: saving reloads the grid and
+                // rebuilds controllers, which would reset scroll/focus mid-entry.
+                // Use the Save button in the app bar to persist all edits at once.
+                onSubmitted: (_) {
+                  if (nextKey == null) {
+                    _startEditing(null); // last column → close the keyboard
+                    return;
+                  }
+                  _autoDateOnEntry(nextKey);
+                  _moveToNext(nextKey);
+                },
+              ),
             ),
-            onTapOutside: (_) => setState(() => _editing = null),
-            // Suppress the default focus traversal so we control where the
-            // caret lands (handled in onSubmitted).
-            onEditingComplete: () {},
-            // Action button: save the row's changes, then jump to the next
-            // editable column (or close the keyboard if this is the last one).
-            onSubmitted: (_) {
-              widget.onSave();
-              setState(() => _editing = nextKey);
-            },
           ),
         );
       }
 
       // Idle editable cell: a tappable, text-field-looking box (cheap to build).
       return GestureDetector(
-        onTap: () => setState(() => _editing = key),
+        onTap: () => _startEditing(key),
         child: Container(
-          width: _cellWidth,
-          height: 40,
           margin: const EdgeInsets.all(2),
           alignment: Alignment.centerLeft,
           padding: const EdgeInsets.symmetric(horizontal: 8),
-          decoration: BoxDecoration(
-            border: Border.all(color: Theme.of(context).dividerColor),
-            borderRadius: BorderRadius.circular(4),
-          ),
+          decoration: idleDecoration,
           child: Text(
             controller?.text ?? cell.value,
             maxLines: 1,
@@ -417,21 +560,44 @@ class _GridEditorState extends State<_GridEditor> {
 
     // Locked / computed cell.
     return Container(
-      width: _cellWidth,
-      height: 40,
       margin: const EdgeInsets.all(2),
       alignment: Alignment.centerLeft,
       padding: const EdgeInsets.symmetric(horizontal: 8),
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(4),
-      ),
+      decoration: lockedDecoration,
       child: Text(
         cell.value,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+        style: lockedStyle,
       ),
     );
+  }
+}
+
+/// Stops a descendant's `showOnScreen` from bubbling up to the [TableView].
+///
+/// A focused [TextField] (via `EditableText`) asks its ancestors to scroll its
+/// caret into view whenever it gains focus or its position shifts. Inside the
+/// grid that yanks the whole table — vertically, and in a way that fights the
+/// horizontal column reveal we drive ourselves. Swallowing the request here
+/// makes our [_GridEditorState._revealColumn] the only thing that scrolls the
+/// grid, so column navigation is predictable.
+class _SwallowShowOnScreen extends SingleChildRenderObjectWidget {
+  const _SwallowShowOnScreen({required Widget super.child});
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderSwallowShowOnScreen();
+}
+
+class _RenderSwallowShowOnScreen extends RenderProxyBox {
+  @override
+  void showOnScreen({
+    RenderObject? descendant,
+    Rect? rect,
+    Duration duration = Duration.zero,
+    Curve curve = Curves.ease,
+  }) {
+    // Intentionally do not forward to ancestors.
   }
 }

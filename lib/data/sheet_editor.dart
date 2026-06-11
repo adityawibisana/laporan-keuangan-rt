@@ -55,21 +55,36 @@ class SheetEditor {
     );
     final values = valueRange.values ?? const [];
 
-    // Which cells are formulas (so we can lock them).
+    // Per-cell metadata: whether each cell is a formula (so we can lock it),
+    // its number-format type (to spot dates), and its formatted text (what the
+    // sheet actually shows, e.g. "11/06/2026" for a date).
     final meta = await _api.spreadsheets.get(
       _spreadsheetId,
       ranges: [title],
       includeGridData: true,
-      $fields: 'sheets/data/rowData/values/userEnteredValue/formulaValue',
+      $fields: 'sheets/data/rowData/values('
+          'userEnteredValue/formulaValue,'
+          'formattedValue,'
+          'effectiveFormat/numberFormat/type)',
     );
     final rowData =
         meta.sheets?.firstOrNull?.data?.firstOrNull?.rowData ?? const [];
 
-    bool isFormula(int r, int c) {
-      if (r >= rowData.length) return false;
+    sheets.CellData? cellAt(int r, int c) {
+      if (r >= rowData.length) return null;
       final cells = rowData[r].values;
-      if (cells == null || c >= cells.length) return false;
-      return cells[c].userEnteredValue?.formulaValue != null;
+      if (cells == null || c >= cells.length) return null;
+      return cells[c];
+    }
+
+    bool isFormula(int r, int c) =>
+        cellAt(r, c)?.userEnteredValue?.formulaValue != null;
+
+    // A date/time cell renders its serial number as a date in the sheet. We
+    // mirror that by displaying its formatted text instead of the serial.
+    bool isDate(int r, int c) {
+      final type = cellAt(r, c)?.effectiveFormat?.numberFormat?.type;
+      return type == 'DATE' || type == 'DATE_TIME';
     }
 
     // The Sheets API trims each row to its last non-empty cell (and omits empty
@@ -86,7 +101,11 @@ class SheetEditor {
       final raw = values[r];
       final cells = <GridCell>[];
       for (var c = 0; c < width; c++) {
-        final value = c < raw.length ? _stringify(raw[c]) : '';
+        final rawValue = c < raw.length ? _stringify(raw[c]) : '';
+        // Dates come back from UNFORMATTED_VALUE as serial numbers; show the
+        // sheet's formatted text (e.g. DD/MM/YYYY) so they read as real dates.
+        final value =
+            isDate(r, c) ? (cellAt(r, c)?.formattedValue ?? rawValue) : rawValue;
         cells.add(GridCell(value, isFormula: isFormula(r, c)));
       }
       rows.add(cells);

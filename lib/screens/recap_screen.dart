@@ -36,7 +36,11 @@ class RecapScreen extends StatelessWidget {
         centerTitle: true,
         actions: const [_AccountButton(), _RefreshButton(), _LanguageButton()],
       ),
-      body: BlocConsumer<RecapBloc, RecapState>(
+      body: SafeArea(
+        // The AppBar already insets the top; only guard the bottom so content
+        // isn't clipped by the Android system navigation bar.
+        top: false,
+        child: BlocConsumer<RecapBloc, RecapState>(
         listenWhen: (prev, curr) =>
             prev.refreshError != curr.refreshError && curr.refreshError != null,
         listener: (context, state) {
@@ -65,6 +69,7 @@ class RecapScreen extends StatelessWidget {
               return _RecapView(state: state, recap: recap);
           }
         },
+      ),
       ),
       ),
     );
