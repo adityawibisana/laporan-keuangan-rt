@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show RenderProxyBox;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import 'package:two_dimensional_scrollables/two_dimensional_scrollables.dart';
@@ -308,23 +307,23 @@ class _GridEditorState extends State<_GridEditor> {
   );
   static const _rowSpan = TableSpan(extent: FixedTableSpanExtent(_rowExtent));
 
-  /// The single cell currently promoted to a live TextField, keyed "row_col".
-  /// Every other cell renders as a cheap Text, which keeps scrolling smooth on
-  /// wide/tall grids (a TextField per cell builds a heavy EditableText each).
-  String? _editing;
+  /// The selected cell, keyed "row_col". Cells are NOT edited inline; tapping a
+  /// cell selects it and its content is edited in the persistent bar at the
+  /// bottom (like the Google Sheets app). This keeps every grid cell a cheap
+  /// Text — no EditableText to slow scrolling — and keeps the keyboard open
+  /// while moving between cells (the bar is the one and only text field).
+  String? _selected;
 
-  /// Drives horizontal scrolling so we can reveal the next column on IME "next".
+  /// Drives horizontal scrolling so we can reveal the selected cell.
   final ScrollController _hController = ScrollController();
 
-  /// Focus for the single active editor. Shared because only one cell edits at
-  /// a time; we drive focus manually (not `autofocus`) so it lands AFTER the
-  /// target column is scrolled into view.
-  final FocusNode _editFocus = FocusNode();
+  /// Focus for the bottom edit bar — the single text field for the whole grid.
+  final FocusNode _barFocus = FocusNode();
 
   @override
   void dispose() {
     _hController.dispose();
-    _editFocus.dispose();
+    _barFocus.dispose();
     super.dispose();
   }
 
@@ -344,6 +343,11 @@ class _GridEditorState extends State<_GridEditor> {
       border: Border.all(color: theme.dividerColor),
       borderRadius: BorderRadius.circular(4),
     );
+    final selectedDecoration = BoxDecoration(
+      color: scheme.primary.withValues(alpha: 0.10),
+      border: Border.all(color: scheme.primary, width: 2),
+      borderRadius: BorderRadius.circular(4),
+    );
     final lockedDecoration = BoxDecoration(
       color: scheme.surfaceContainerHighest,
       borderRadius: BorderRadius.circular(4),
@@ -353,77 +357,186 @@ class _GridEditorState extends State<_GridEditor> {
     // TableView virtualizes BOTH axes — only the cells visible in the viewport
     // are built and painted. (The old horizontal SingleChildScrollView built
     // every column of every visible row, which is what made wide tabs janky.)
-    return TableView.builder(
-      horizontalDetails: ScrollableDetails.horizontal(controller: _hController),
-      columnCount: cols,
-      rowCount: rows.length,
-      pinnedRowCount: 1, // keep the header row visible while scrolling
-      columnBuilder: (_) => _columnSpan,
-      rowBuilder: (_) => _rowSpan,
-      cellBuilder: (context, vicinity) => TableViewCell(
-        child: _cell(
-          vicinity.row,
-          vicinity.column,
-          idleDecoration,
-          lockedDecoration,
-          lockedStyle,
+    return Column(
+      children: [
+        Expanded(
+          child: TableView.builder(
+            horizontalDetails: ScrollableDetails.horizontal(
+              controller: _hController,
+            ),
+            columnCount: cols,
+            rowCount: rows.length,
+            pinnedRowCount: 1, // keep the header row visible while scrolling
+            columnBuilder: (_) => _columnSpan,
+            rowBuilder: (_) => _rowSpan,
+            cellBuilder: (context, vicinity) => TableViewCell(
+              child: _cell(
+                vicinity.row,
+                vicinity.column,
+                idleDecoration,
+                selectedDecoration,
+                lockedDecoration,
+                lockedStyle,
+              ),
+            ),
+          ),
+        ),
+        _editBar(context),
+      ],
+    );
+  }
+
+  /// Selects [key], moves the caret to the end of its value, focuses the bottom
+  /// edit bar (opening the keyboard), and scrolls the cell into view.
+  void _select(String key) {
+    setState(() => _selected = key);
+    final ctrl = widget.controllers[key];
+    if (ctrl != null) {
+      ctrl.selection = TextSelection.collapsed(offset: ctrl.text.length);
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _barFocus.requestFocus();
+    });
+    _revealColumn(int.parse(key.split('_')[1]));
+  }
+
+  /// Keyboard "next" / Next button: select the next editable cell in the row
+  /// (closing the keyboard if there is none). The bar stays focused throughout,
+  /// so the keyboard never closes between cells.
+  void _moveToNext() {
+    final key = _selected;
+    if (key == null) return;
+    final parts = key.split('_');
+    final r = int.parse(parts[0]);
+    final c = int.parse(parts[1]);
+    final nextKey = _nextEditableKey(r, c);
+    if (nextKey == null) {
+      _done();
+      return;
+    }
+    _autoDateOnEntry(nextKey);
+    setState(() => _selected = nextKey);
+    final ctrl = widget.controllers[nextKey];
+    if (ctrl != null) {
+      ctrl.selection = TextSelection.collapsed(offset: ctrl.text.length);
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _barFocus.requestFocus();
+    });
+    _revealColumn(int.parse(nextKey.split('_')[1]));
+  }
+
+  /// Clears the selection and dismisses the keyboard.
+  void _done() {
+    _barFocus.unfocus();
+    setState(() => _selected = null);
+  }
+
+  /// Scrolls horizontally so column [col] sits fully inside the viewport. Defers
+  /// to a post-frame so it runs after any selection rebuild.
+  void _revealColumn(int col) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_hController.hasClients) return;
+      final pos = _hController.position;
+      const pad = 12.0; // a little breathing room so the column isn't flush
+      final left = col * _colExtent;
+      final right = left + _colExtent;
+      var target = pos.pixels;
+      if (right + pad > pos.pixels + pos.viewportDimension) {
+        target = right + pad - pos.viewportDimension;
+      } else if (left - pad < pos.pixels) {
+        target = left - pad;
+      }
+      target = target.clamp(0.0, pos.maxScrollExtent);
+      if ((target - pos.pixels).abs() > 0.5) {
+        _hController.animateTo(
+          target,
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  /// The bottom edit bar (Sheets-style): one persistent text field bound to the
+  /// selected cell's controller. Because it never leaves the tree, the keyboard
+  /// stays up while moving between cells, and it lives outside the grid so it
+  /// can't scroll the grid around.
+  Widget _editBar(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final key = _selected;
+    final controller = key == null ? null : widget.controllers[key];
+    final hasSel = controller != null;
+
+    var label = '';
+    var hasNext = false;
+    if (key != null) {
+      final parts = key.split('_');
+      final r = int.parse(parts[0]);
+      final c = int.parse(parts[1]);
+      label = _headerLabel(c);
+      hasNext = _nextEditableKey(r, c) != null;
+    }
+
+    return Material(
+      elevation: 8,
+      color: scheme.surface,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+        child: Row(
+          children: [
+            if (label.isNotEmpty) ...[
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 96),
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+            ],
+            Expanded(
+              child: TextField(
+                controller: controller,
+                focusNode: _barFocus,
+                readOnly: !hasSel,
+                textInputAction: hasNext
+                    ? TextInputAction.next
+                    : TextInputAction.done,
+                onSubmitted: (_) => hasNext ? _moveToNext() : _done(),
+                decoration: InputDecoration(
+                  isDense: true,
+                  hintText: hasSel ? null : 'Ketuk sel untuk mengedit',
+                  border: const OutlineInputBorder(),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                ),
+                style: const TextStyle(fontSize: 14),
+              ),
+            ),
+            IconButton(
+              tooltip: hasNext ? 'Berikutnya' : 'Selesai',
+              onPressed: !hasSel ? null : (hasNext ? _moveToNext : _done),
+              icon: Icon(hasNext ? Icons.east : Icons.check),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  /// Promotes [key] to the live editor (or clears it when null) and focuses it
-  /// after the frame. Focus is driven manually (not via `autofocus`) so we
-  /// control its timing relative to scrolling.
-  void _startEditing(String? key) {
-    setState(() => _editing = key);
-    if (key == null) {
-      _editFocus.unfocus();
-      return;
-    }
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _editFocus.requestFocus();
-    });
-  }
-
-  /// Handles the keyboard "next" action: move the editor to the next column
-  /// immediately (so the cursor follows), re-grab focus to keep the keyboard up,
-  /// then scroll that column fully into view. Because the editor is wrapped in a
-  /// [_SwallowShowOnScreen], focusing it never scrolls the table itself, so our
-  /// horizontal reveal runs uncontested (and nothing jumps vertically).
-  void _moveToNext(String key) {
-    final col = int.parse(key.split('_')[1]);
-    setState(() => _editing = key);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _editFocus.requestFocus();
-      _revealColumn(col).then((_) {
-        if (mounted) _editFocus.requestFocus();
-      });
-    });
-  }
-
-  /// Scrolls horizontally so column [col] sits fully inside the viewport.
-  /// Completes once the scroll animation (if any) finishes.
-  Future<void> _revealColumn(int col) {
-    if (!_hController.hasClients) return Future<void>.value();
-    final pos = _hController.position;
-    const pad = 12.0; // a little breathing room so the column isn't flush
-    final left = col * _colExtent;
-    final right = left + _colExtent;
-    var target = pos.pixels;
-    if (right + pad > pos.pixels + pos.viewportDimension) {
-      target = right + pad - pos.viewportDimension;
-    } else if (left - pad < pos.pixels) {
-      target = left - pad;
-    }
-    target = target.clamp(0.0, pos.maxScrollExtent);
-    if ((target - pos.pixels).abs() <= 0.5) return Future<void>.value();
-    return _hController.animateTo(
-      target,
-      duration: const Duration(milliseconds: 250),
-      curve: Curves.easeOut,
-    );
+  /// The header (grid row 0) text for column [c], used to label the edit bar.
+  String _headerLabel(int c) {
+    if (widget.grid.rows.isEmpty) return '';
+    final header = widget.grid.rows[0];
+    return c < header.length ? header[c].value.trim() : '';
   }
 
   /// Column index whose header (grid row 0) equals [name], case-insensitive,
@@ -481,6 +594,7 @@ class _GridEditorState extends State<_GridEditor> {
     int r,
     int c,
     BoxDecoration idleDecoration,
+    BoxDecoration selectedDecoration,
     BoxDecoration lockedDecoration,
     TextStyle lockedStyle,
   ) {
@@ -492,68 +606,35 @@ class _GridEditorState extends State<_GridEditor> {
     if (cell.isEditable) {
       final key = '${r}_$c';
       final controller = widget.controllers[key];
+      final selected = key == _selected;
 
-      // Active editor: the one tapped cell. Autofocus and drop back to a Text
-      // when focus leaves (tap elsewhere / scroll dismiss).
-      if (_editing == key) {
-        final nextKey = _nextEditableKey(r, c);
-        return Padding(
-          padding: const EdgeInsets.all(2),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: _SwallowShowOnScreen(
-              child: TextField(
-                controller: controller,
-                focusNode: _editFocus,
-                style: const TextStyle(fontSize: 12),
-                textInputAction: nextKey != null
-                    ? TextInputAction.next
-                    : TextInputAction.done,
-                decoration: const InputDecoration(
-                  isDense: true,
-                  contentPadding: EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 8,
-                  ),
-                  border: OutlineInputBorder(),
-                ),
-                onTapOutside: (_) => _startEditing(null),
-                // Suppress the default focus traversal so we control where the
-                // caret lands (handled in onSubmitted).
-                onEditingComplete: () {},
-                // Action button: jump to the next editable column (or close the
-                // keyboard if this is the last one), scrolling it fully into view.
-                // We deliberately do NOT save here: saving reloads the grid and
-                // rebuilds controllers, which would reset scroll/focus mid-entry.
-                // Use the Save button in the app bar to persist all edits at once.
-                onSubmitted: (_) {
-                  if (nextKey == null) {
-                    _startEditing(null); // last column → close the keyboard
-                    return;
-                  }
-                  _autoDateOnEntry(nextKey);
-                  _moveToNext(nextKey);
-                },
-              ),
-            ),
-          ),
-        );
-      }
-
-      // Idle editable cell: a tappable, text-field-looking box (cheap to build).
+      // Tapping selects the cell; editing happens in the bottom bar. The
+      // selected cell mirrors the bar live via a ListenableBuilder on its
+      // controller; every other cell is a plain Text, which is what keeps a
+      // wide/tall grid scrolling smoothly (no EditableText anywhere).
       return GestureDetector(
-        onTap: () => _startEditing(key),
+        onTap: () => _select(key),
         child: Container(
           margin: const EdgeInsets.all(2),
           alignment: Alignment.centerLeft,
           padding: const EdgeInsets.symmetric(horizontal: 8),
-          decoration: idleDecoration,
-          child: Text(
-            controller?.text ?? cell.value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 12),
-          ),
+          decoration: selected ? selectedDecoration : idleDecoration,
+          child: selected && controller != null
+              ? ListenableBuilder(
+                  listenable: controller,
+                  builder: (context, _) => Text(
+                    controller.text,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                )
+              : Text(
+                  controller?.text ?? cell.value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 12),
+                ),
         ),
       );
     }
@@ -571,33 +652,5 @@ class _GridEditorState extends State<_GridEditor> {
         style: lockedStyle,
       ),
     );
-  }
-}
-
-/// Stops a descendant's `showOnScreen` from bubbling up to the [TableView].
-///
-/// A focused [TextField] (via `EditableText`) asks its ancestors to scroll its
-/// caret into view whenever it gains focus or its position shifts. Inside the
-/// grid that yanks the whole table — vertically, and in a way that fights the
-/// horizontal column reveal we drive ourselves. Swallowing the request here
-/// makes our [_GridEditorState._revealColumn] the only thing that scrolls the
-/// grid, so column navigation is predictable.
-class _SwallowShowOnScreen extends SingleChildRenderObjectWidget {
-  const _SwallowShowOnScreen({required Widget super.child});
-
-  @override
-  RenderObject createRenderObject(BuildContext context) =>
-      _RenderSwallowShowOnScreen();
-}
-
-class _RenderSwallowShowOnScreen extends RenderProxyBox {
-  @override
-  void showOnScreen({
-    RenderObject? descendant,
-    Rect? rect,
-    Duration duration = Duration.zero,
-    Curve curve = Curves.ease,
-  }) {
-    // Intentionally do not forward to ancestors.
   }
 }
